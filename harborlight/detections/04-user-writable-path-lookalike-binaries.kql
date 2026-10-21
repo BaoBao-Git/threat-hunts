@@ -1,0 +1,12 @@
+// Rule:        Executables created or launched from C:\Users\Public or ProgramData\Microsoft
+// Tactics:     Defense Evasion, Command and Control
+// Techniques:  T1036.005, T1105 (Ingress Tool Transfer)
+// Source:      Sysmon EventID 11 (file create) and 1 (process creation)
+// Seen in:     Q11.2 and Q11.3 - OneDriveSync.exe and wsync.exe dropped by an injected process
+// Severity:    Medium
+// Tuning:      Allow-list known installers. Weight alerts where the writer is a process that was itself injected.
+HarborlightDental_CL
+| where EventID == 11
+| where TargetFilename endswith ".exe" or TargetFilename endswith ".dll"
+| where TargetFilename startswith @"C:\Users\Public\" or TargetFilename startswith @"C:\ProgramData\Microsoft\"
+| project EventTime, host, Image, TargetFilename

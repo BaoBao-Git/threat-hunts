@@ -1,0 +1,23 @@
+// Rule:        System process names running from the wrong folder
+// Tactics:     Defense Evasion
+// Techniques:  T1036.005 (Masquerading: Match Legitimate Name or Location)
+// Source:      Sysmon EventID 1 (process creation), HarborlightDental_CL
+// Seen in:     Q3.2, Q9.2, Q11.2, Q11.3 - taskhostw.exe in C:\Users\Public, MsMpEng.exe in C:\ProgramData\Microsoft,
+//              OneDriveSync.exe in C:\Users\Public, wsync.exe in C:\ProgramData\Microsoft
+// Severity:    High
+// Tuning:      Add expected paths for your estate. Judge by the full path, never the filename alone.
+let expected = datatable(name:string, path_prefix:string) [
+  "taskhostw.exe",  @"C:\Windows\System32\",
+  "spoolsv.exe",    @"C:\Windows\System32\",
+  "svchost.exe",    @"C:\Windows\System32\",
+  "MsMpEng.exe",    @"C:\ProgramData\Microsoft\Windows Defender\",
+  "MsMpEng.exe",    @"C:\Program Files\Windows Defender\",
+  "OneDrive.exe",   @"C:\Program Files\Microsoft OneDrive\"
+];
+HarborlightDental_CL
+| where EventID == 1
+| extend name = tostring(split(Image, "\\")[-1])
+| join kind=inner (expected | summarize prefixes = make_set(path_prefix) by name) on name
+| mv-apply p = prefixes to typeof(string) on (summarize in_expected_path = countif(Image startswith p))
+| where in_expected_path == 0
+| project EventTime, host, Image, ParentImage, CommandLine

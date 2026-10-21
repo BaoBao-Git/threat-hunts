@@ -1,0 +1,12 @@
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Raw exports and working files that should not be published
+*.csv
+*.tmp
+*.log
+private/
+notes/

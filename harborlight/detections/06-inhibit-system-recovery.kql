@@ -1,0 +1,14 @@
+// Rule:        Backup and recovery destruction commands
+// Tactics:     Impact
+// Techniques:  T1490 (Inhibit System Recovery)
+// Source:      Sysmon EventID 1
+// Seen in:     Q10.3 and Q10.4 - vssadmin, wmic shadowcopy, bcdedit, wbadmin, run twice on HL-FS01 (04:04:05, 04:05:26)
+// Severity:    Critical
+// Tuning:      Backup software can legitimately call some of these; allow-list by parent process and account.
+HarborlightDental_CL
+| where EventID == 1
+| where CommandLine has "vssadmin" and CommandLine has "delete" and CommandLine has "shadows"
+    or CommandLine has "shadowcopy" and CommandLine has "delete"
+    or CommandLine has "bcdedit" and CommandLine has_any ("recoveryenabled no", "ignoreallfailures")
+    or CommandLine has "wbadmin" and CommandLine has "delete"
+| project EventTime, host, Image, ParentImage, CommandLine

@@ -1,0 +1,16 @@
+// Rule:        Regular-interval outbound beaconing from a single process
+// Tactics:     Command and Control
+// Techniques:  T1071.001 (Web Protocols), T1090.004 (Domain Fronting, platform tag)
+// Source:      Sysmon EventID 3 (network connection)
+// Seen in:     Q11.2 and Q12.2 - about one connection a minute to two Cloudflare IPs from three hosts for 16 hours
+// Severity:    High
+// Tuning:      Lower the threshold on servers. Allow-list update services and monitoring agents by Image.
+HarborlightDental_CL
+| where EventID == 3
+| where isnotempty(DestinationIp)
+| sort by host asc, Image asc, DestinationIp asc, EventTime asc
+| extend gap = EventTime - prev(EventTime), same = (host == prev(host) and Image == prev(Image) and DestinationIp == prev(DestinationIp))
+| where same
+| summarize connections = count(), median_gap_s = percentile(gap / 1s, 50), stdev_gap_s = stdev(gap / 1s),
+            first_seen = min(EventTime), last_seen = max(EventTime) by host, Image, DestinationIp
+| where connections > 200 and median_gap_s between (30 .. 120) and stdev_gap_s < 30

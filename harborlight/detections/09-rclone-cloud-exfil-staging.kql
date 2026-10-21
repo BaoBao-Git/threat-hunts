@@ -1,0 +1,13 @@
+// Rule:        rclone-style cloud sync configuration and use
+// Tactics:     Exfiltration
+// Techniques:  T1567.002 (Exfiltration to Cloud Storage), T1039
+// Source:      Sysmon EventID 1
+// Seen in:     Q9.2-Q9.4 - config written with echo [mega] / type = mega / user = ... then
+//              a renamed rclone (MsMpEng.exe) copied C:\Shares to mega:HARBORLIGHT-exfil
+// Severity:    High
+// Tuning:      Looks at behavior (config echo or remote-style copy), not the binary name, because the tool was renamed.
+HarborlightDental_CL
+| where EventID == 1
+| where CommandLine has_any ("type = mega", "[mega]", "--password-command", "rclone.conf")
+    or CommandLine matches regex @"\bcopy\s+\S+\s+\w+:[\w\-]+"
+| project EventTime, host, Image, ParentImage, CommandLine

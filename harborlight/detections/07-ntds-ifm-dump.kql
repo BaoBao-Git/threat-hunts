@@ -1,0 +1,12 @@
+// Rule:        Active Directory database extraction with ntdsutil IFM
+// Tactics:     Credential Access
+// Techniques:  T1003.003 (NTDS)
+// Source:      Sysmon EventID 1 on domain controllers
+// Seen in:     Q7.1 - ntdsutil "ac i ntds" "ifm" "create full C:\Windows\Temp\ntds" at 04:33:55 on ADDC01
+// Severity:    Critical
+// Tuning:      Planned IFM media creation by the MSP should come from a known account and change window.
+HarborlightDental_CL
+| where EventID == 1
+| where CommandLine has "ntdsutil" and CommandLine has "ifm"
+    or CommandLine has_any ("esentutl", "diskshadow") and CommandLine has "ntds"
+| project EventTime, host, Image, ParentImage, CommandLine

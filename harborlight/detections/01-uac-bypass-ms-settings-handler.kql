@@ -1,0 +1,11 @@
+// Rule:        UAC bypass via ms-settings protocol handler hijack
+// Tactics:     Privilege Escalation, Defense Evasion
+// Techniques:  T1548.002 (Bypass User Account Control), T1112 (Modify Registry)
+// Source:      Sysmon EventID 13 (registry value set), HarborlightDental_CL
+// Seen in:     Q3.1 - reg.exe set ms-settings\shell\open\command to C:\Users\Public\taskhostw.exe (02:40-02:42 UTC)
+// Severity:    High
+// Tuning:      Legitimate software almost never writes this key under a user hive. Expect very few false positives.
+HarborlightDental_CL
+| where EventID == 13
+| where TargetObject has @"_Classes\ms-settings\shell\open\command" or TargetObject has @"_Classes\ms-settings\shell\open\command\DelegateExecute"
+| project EventTime, host, Image, TargetObject, Details

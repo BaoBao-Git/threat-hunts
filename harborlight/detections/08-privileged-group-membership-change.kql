@@ -1,0 +1,14 @@
+// Rule:        Account added to a privileged group
+// Tactics:     Persistence, Privilege Escalation
+// Techniques:  T1098 (Account Manipulation), T1136.002 (Create Account: Domain Account)
+// Source:      Security 4728 (global group) and 4732 (local group)
+// Seen in:     Q13.1-Q13.3 - svc_sql added to Administrators (4732, 05:22:28) and Domain Admins (4728, 05:22:57)
+// Severity:    Critical
+// Tuning:      Join to a change-window list. Extract MemberName, TargetUserName and SubjectUserName from EventData_Xml
+//              (not extracted in the original hunt, so field names should be verified in your table).
+HarborlightDental_CL
+| where EventCode in (4728, 4732)
+| extend Member  = extract(@"Name='MemberName'>([^<]+)", 1, EventData_Xml),
+         Group   = extract(@"Name='TargetUserName'>([^<]+)", 1, EventData_Xml),
+         Subject = extract(@"Name='SubjectUserName'>([^<]+)", 1, EventData_Xml)
+| project EventTime, host, EventCode, Member, Group, Subject

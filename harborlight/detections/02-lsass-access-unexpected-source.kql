@@ -1,0 +1,17 @@
+// Rule:        LSASS process access from a non-allow-listed source with a high-privilege mask
+// Tactics:     Credential Access
+// Techniques:  T1003.001 (LSASS Memory)
+// Source:      Sysmon EventID 10 (process access), HarborlightDental_CL
+// Seen in:     Q5.3 - SYSTEM spoolsv.exe opened lsass.exe with 0x1fffff at 02:49:46, about 2.5 min after being injected
+// Severity:    High
+// Tuning:      Extend the allow-list from your own baseline. SearchIndexer (0x21410) was noise in this environment.
+let allowed = dynamic(["MsMpEng.exe", "csrss.exe", "wininit.exe", "services.exe", "svchost.exe", "SearchIndexer.exe"]);
+HarborlightDental_CL
+| where EventID == 10
+| extend SourceImage = extract(@"Name='SourceImage'>([^<]+)", 1, EventData_Xml),
+         TargetImage = extract(@"Name='TargetImage'>([^<]+)", 1, EventData_Xml)
+| where TargetImage endswith "\\lsass.exe"
+| where granted_access in~ ("0x1fffff", "0x1410", "0x1010", "0x1438", "0x143a")
+| extend SourceExe = tostring(split(SourceImage, "\\")[-1])
+| where SourceExe !in~ (allowed)
+| project EventTime, host, SourceImage, granted_access

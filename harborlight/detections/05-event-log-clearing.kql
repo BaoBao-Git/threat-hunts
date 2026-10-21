@@ -1,0 +1,13 @@
+// Rule:        Event log clearing, including multi-channel bursts
+// Tactics:     Defense Evasion
+// Techniques:  T1070.001 (Clear Windows Event Logs)
+// Source:      Sysmon EventID 1; pair with Security Event 1102 and System Event 104 where available
+// Seen in:     Q8.2 and Q8.4 - two waves per host, 5 then 16 channels, all commands inside one second
+// Severity:    High
+// Tuning:      Forward logs to the SIEM so copies survive local clearing (that is what made this hunt possible).
+HarborlightDental_CL
+| where EventID == 1
+| where CommandLine has "wevtutil" and CommandLine has " cl"
+    or CommandLine has_any ("Clear-EventLog", "Remove-EventLog", "Limit-EventLog")
+| summarize commands = count(), first_cmd = min(EventTime), last_cmd = max(EventTime) by host, Image, ParentImage, burst = bin(EventTime, 1m)
+| where commands >= 3
